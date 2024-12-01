@@ -1,7 +1,7 @@
 #!/bin/bash
 
 list_users() {
-    getent passwd | awk -F: '{if ($6 != "" && $6 != "/nonexistent") print $1, $6}' | sort
+    getent passwd | awk -F: '{if ($6 && $6 != "/nonexistent") print $1, $6}' | sort
 }
 
 list_processes() {
@@ -10,94 +10,103 @@ list_processes() {
 
 # Функция для справки
 show_help() {
-    echo "Usage: $0 [OPTIONS]"
-    echo "Options:"
-    echo "  -u, --users           Display list of users and their home directories."
-    echo "  -p, --processes       Display list of running processes sorted by PID."
-    echo "  -h, --help            Show this help message."
-    echo "  -l PATH, --log PATH   Redirect output to the specified file PATH."
-    echo "  -e PATH, --errors PATH Redirect error messages to the specified file PATH."
+    cat << EOF
+Usage: $0 [OPTIONS]
+
+Options:
+  -u, --users           Display list of users and their home directories.
+  -p, --processes       Display list of running processes sorted by PID.
+  -h, --help            Show this help message.
+  -l PATH, --log PATH   Redirect output to the specified file PATH.
+  -e PATH, --errors PATH Redirect error messages to the specified file PATH.
+EOF
 }
 
-OUTPUT=""
-ERRORS=""
-ACTION=""
 
-while getopts ":uph-:l:e:" opt; do
-    case $opt in
-        u)
-            ACTION="users"
+parse_args() {
+    local TEMP
+    TEMP=$(getopt -o "uph:l:e:" --long "users,processes,help,log:,errors:" -n "$0" -- "$@")
+    if [ $? != 0 ]; then
+        echo "Error parsing options." >&2
+        exit 1
+    fi
+    eval set -- "$TEMP"
+
+    while true; do
+        case "$1" in
+            -u|--users)
+                ACTION="users"
+                shift
+                ;;
+            -p|--processes)
+                ACTION="processes"
+                shift
+                ;;
+            -h|--help)
+                ACTION="help"
+                shift
+                ;;
+            -l|--log)
+                OUTPUT="$2"
+                shift 2
+                ;;
+            -e|--errors)
+                ERRORS="$2"
+                shift 2
+                ;;
+            --)
+                shift
+                break
+                ;;
+            *)
+                echo "Invalid option: $1" >&2
+                exit 1
+                ;;
+        esac
+    done
+}
+
+check_paths() {
+    if [[ -n $OUTPUT && ! -w $(dirname "$OUTPUT") ]]; then
+        echo "Error: Cannot write to output file path $OUTPUT" >&2
+        exit 1
+    fi
+
+    if [[ -n $ERRORS && ! -w $(dirname "$ERRORS") ]]; then
+        echo "Error: Cannot write to errors file path $ERRORS" >&2
+        exit 1
+    fi
+}
+
+# Замена потоков вывода
+redirect_streams() {
+    if [[ -n $OUTPUT ]]; then
+        exec >"$OUTPUT"
+    fi
+    if [[ -n $ERRORS ]]; then
+        exec 2>"$ERRORS"
+    fi
+}
+
+main() {
+    parse_args "$@"
+    check_paths
+    redirect_streams
+
+    case $ACTION in
+        users)
+            list_users
             ;;
-        p)
-            ACTION="processes"
+        processes)
+            list_processes
             ;;
-        h)
-            ACTION="help"
+        help)
+            show_help
             ;;
-        l)
-            OUTPUT="$OPTARG"
-            ;;
-        e)
-            ERRORS="$OPTARG"
-            ;;
-        -)
-            case $OPTARG in
-                users)
-                    ACTION="users"
-                    ;;
-                processes)
-                    ACTION="processes"
-                    ;;
-                help)
-                    ACTION="help"
-                    ;;
-                log)
-                    OUTPUT="${!OPTIND}"; OPTIND=$((OPTIND + 1))
-                    ;;
-                errors)
-                    ERRORS="${!OPTIND}"; OPTIND=$((OPTIND + 1))
-                    ;;
-                *)
-                    echo "Invalid option: --$OPTARG" >&2
-                    exit 1
-                    ;;
-            esac
-            ;;
-        \?)
-            echo "Invalid option: -$OPTARG" >&2
-            exit 1
-            ;;
-        :)
-            echo "Option -$OPTARG requires an argument." >&2
+        *)
+            echo "No valid action specified. Use -h or --help for usage information." >&2
             exit 1
             ;;
     esac
-done
-
-if [[ -n $OUTPUT && ! -w $(dirname "$OUTPUT") ]]; then
-    echo "Error: Cannot write to output file path $OUTPUT" >&2
-    exit 1
-fi
-
-if [[ -n $ERRORS && ! -w $(dirname "$ERRORS") ]]; then
-    echo "Error: Cannot write to errors file path $ERRORS" >&2
-    exit 1
-fi
-
-exec >"$OUTPUT" 2>"$ERRORS"
-
-case $ACTION in
-    users)
-        list_users
-        ;;
-    processes)
-        list_processes
-        ;;
-    help)
-        show_help
-        ;;
-    *)
-        echo "No valid action specified. Use -h or --help for usage information." >&2
-        exit 1
-        ;;
-esac
+}
+main "$@"
