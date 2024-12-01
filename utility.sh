@@ -1,13 +1,14 @@
 #!/bin/bash
 
 list_users() {
-    getent passwd | awk -F: '{print $1, $6}' | sort
+    getent passwd | awk -F: '{if ($6 != "" && $6 != "/nonexistent") print $1, $6}' | sort
 }
 
 list_processes() {
     ps -eo pid,cmd --sort=pid
 }
 
+# Функция для справки
 show_help() {
     echo "Usage: $0 [OPTIONS]"
     echo "Options:"
